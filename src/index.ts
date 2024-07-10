@@ -61,7 +61,7 @@ app.listen(port, () => {
 });
 
 CronJob.from({
-    cronTime: "* */1 * * *",
+    cronTime: "0 * * * *",
     onTick: async () => {
         const fetchByUrl = async (url: string) => {
             const { data } = await axios.get<VacanciesResponse>(url);
