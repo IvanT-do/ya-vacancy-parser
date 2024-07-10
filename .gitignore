@@ -3,3 +3,6 @@ node_modules/
 dist/
 src/*/*.js
 src/*.js
+
+.env.local
+.env.*.local

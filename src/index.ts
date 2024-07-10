@@ -3,11 +3,13 @@ import {CronJob} from "cron";
 import axios from "axios";
 import {VacanciesResponse, VacancyResult} from "./types/VacancyData";
 import {Vacancy} from "./entity/Vacancy";
+import {TelegramTarget} from "./entity/TelegramTarget";
 
-const express = require("express");
 require("dotenv").config();
 
-const dataSource = require("./app-data-source").myDataSource;
+const express = require("express");
+const {dataSource} = require("./app-data-source");
+const TelegramBot = require('node-telegram-bot-api');
 
 dataSource
     .initialize()
@@ -21,6 +23,37 @@ dataSource
 const app = express();
 const port = process.env.PORT;
 
+const bot = new TelegramBot(process.env.BOT_API_KEY, {
+    polling: true
+});
+
+bot.on("text", async (msg) => {
+    if(!msg.from.is_bot && msg.chat.id === msg.from.id && msg.text === "/start"){
+        const chatCount = await dataSource
+            .getRepository(TelegramTarget)
+            .createQueryBuilder("target")
+            .where("target.chatId = :id", {id: msg.chat.id})
+            .getCount();
+
+        console.log(chatCount)
+
+        if(chatCount === 0){
+            await dataSource
+                .createQueryBuilder()
+                .insert()
+                .into(TelegramTarget)
+                .values({
+                    chatId: msg.chat.id,
+                    firstName: msg.from.first_name,
+                    lastName: msg.from.last_name
+                })
+                .execute();
+
+            await bot.sendMessage(msg.chat.id, "Вы подписались на уведомления о новых вакансиях!");
+        }
+    }
+});
+
 app.use(json());
 
 app.listen(port, () => {
@@ -28,7 +61,7 @@ app.listen(port, () => {
 });
 
 CronJob.from({
-    cronTime: "* * * */1 * *",
+    cronTime: "* */1 * * *",
     onTick: async () => {
         const fetchByUrl = async (url: string) => {
             const { data } = await axios.get<VacanciesResponse>(url);
@@ -50,7 +83,6 @@ CronJob.from({
                 .getMany();
 
             alreadyInList = dbList.map(item => item.externalId);
-            console.log(dbList)
         }
         catch{}
 
@@ -61,6 +93,28 @@ CronJob.from({
                 const title = vacancy.title.toLowerCase().replace(/\s/g, "-");
                 return `https://yandex.ru/jobs/vacancies/${title}-${vacancy.id}`
             }
+
+            const targets = await dataSource
+                .getRepository(TelegramTarget)
+                .createQueryBuilder("target")
+                .getMany();
+
+            console.log("Найдено", newItems.length, "новых вакансий");
+
+            targets.forEach(user => {
+                newItems.forEach((vacancy) => {
+                    const message = `<b>Новая вакансия в Яндексе!\n«${vacancy.title}»</b>\n${vacancy.short_summary}\n${getUrl(vacancy)}`;
+                    bot.sendMessage(user.chatId, message, {
+                        parse_mode: "HTML",
+                        entities: [{
+                            type: "url",
+                            offset: 0,
+                            length: 1,
+                            url: getUrl(vacancy)
+                        }]
+                    })
+                })
+            })
 
             await dataSource
                 .createQueryBuilder()
