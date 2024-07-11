@@ -1,15 +1,15 @@
-import { json } from "express"
-import {CronJob} from "cron";
-import axios from "axios";
 import {VacanciesResponse, VacancyResult} from "./types/VacancyData";
 import {Vacancy} from "./entity/Vacancy";
 import {TelegramTarget} from "./entity/TelegramTarget";
+import {CronJob} from "cron";
+import axios from "axios";
 
-require("dotenv").config();
+require("dotenv").config({
+    path: [".env.local", ".env"]
+});
 
-const express = require("express");
 const {dataSource} = require("./app-data-source");
-const TelegramBot = require('node-telegram-bot-api');
+const telegramBot = require("./telegramBot")
 
 dataSource
     .initialize()
@@ -20,45 +20,7 @@ dataSource
         console.error("Error during Data Source initialization:", err)
     })
 
-const app = express();
-const port = process.env.PORT;
-
-const bot = new TelegramBot(process.env.BOT_API_KEY, {
-    polling: true
-});
-
-bot.on("text", async (msg) => {
-    if(!msg.from.is_bot && msg.chat.id === msg.from.id && msg.text === "/start"){
-        const chatCount = await dataSource
-            .getRepository(TelegramTarget)
-            .createQueryBuilder("target")
-            .where("target.chatId = :id", {id: msg.chat.id})
-            .getCount();
-
-        console.log(chatCount)
-
-        if(chatCount === 0){
-            await dataSource
-                .createQueryBuilder()
-                .insert()
-                .into(TelegramTarget)
-                .values({
-                    chatId: msg.chat.id,
-                    firstName: msg.from.first_name,
-                    lastName: msg.from.last_name
-                })
-                .execute();
-
-            await bot.sendMessage(msg.chat.id, "Вы подписались на уведомления о новых вакансиях!");
-        }
-    }
-});
-
-app.use(json());
-
-app.listen(port, () => {
-    console.log(`[server]: Server is running at http://localhost:${port}`);
-});
+const bot = telegramBot.start();
 
 CronJob.from({
     cronTime: "0 * * * *",
